@@ -1,0 +1,7 @@
+{
+  "name": "Expense Analyzer Pro",
+  "description": "A premium Zoho-inspired expense management dashboard featuring AI insights, budget tracking, and streamlined approval workflows.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
