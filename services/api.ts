@@ -1,5 +1,20 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Expense, Income } from '../types';
+import { db } from '../firebase';
+import { 
+  collection, 
+  addDoc, 
+  getDocs, 
+  query, 
+  where, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  setDoc,
+  getDoc,
+  serverTimestamp,
+  orderBy
+} from "firebase/firestore";
 
 const USERS_KEY = 'ea_mock_users';
 const EXPENSES_KEY = 'ea_mock_expenses';
@@ -19,9 +34,21 @@ const getLocalBudgets = () => JSON.parse(localStorage.getItem(BUDGETS_KEY) || '[
 const getLocalOTPs = () => JSON.parse(localStorage.getItem(OTPS_KEY) || '[]');
 const getLoggedInUser = () => JSON.parse(localStorage.getItem(USER_DATA_KEY) || 'null');
 
-const DEFAULT_CATEGORIES: any[] = [];
+const DEFAULT_CATEGORIES = [
+  { name: 'Food & Dining', iconName: 'Utensils', color: 'emerald', budget: 5000 },
+  { name: 'Transport', iconName: 'Car', color: 'blue', budget: 3000 },
+  { name: 'Shopping', iconName: 'ShoppingBag', color: 'rose', budget: 10000 },
+  { name: 'Bills & Utilities', iconName: 'Zap', color: 'amber', budget: 2000 },
+  { name: 'Entertainment', iconName: 'Film', color: 'violet', budget: 2000 },
+  { name: 'Health', iconName: 'Activity', color: 'red', budget: 1000 },
+];
 
-const DEFAULT_INCOME_CATEGORIES: any[] = [];
+const DEFAULT_INCOME_CATEGORIES = [
+  { name: 'Salary', iconName: 'Briefcase', color: 'blue' },
+  { name: 'Freelance', iconName: 'Smartphone', color: 'emerald' },
+  { name: 'Investments', iconName: 'TrendingUp', color: 'indigo' },
+  { name: 'Gift', iconName: 'Target', color: 'rose' },
+];
 
 export const apiService = {
   async ocrScan(base64Data: string, mimeType: string) {
@@ -144,68 +171,53 @@ export const apiService = {
     if (!currentUser) throw new Error('Unauthorized');
 
     if (endpoint === '/expenses') {
-      const expenses = getLocalExpenses();
-      const newExpense = { 
-        ...data, 
-        id: Math.random().toString(36).substr(2, 9), 
+      const docRef = await addDoc(collection(db, 'expenses'), {
+        ...data,
         userId: currentUser.id,
         amount: parseFloat(data.amount),
-        status: 'approved' 
-      };
-      expenses.push(newExpense);
-      localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
-      return newExpense;
+        status: 'approved',
+        createdAt: serverTimestamp()
+      });
+      return { id: docRef.id, ...data, userId: currentUser.id, amount: parseFloat(data.amount), status: 'approved' };
     }
 
     if (endpoint === '/income') {
-      const incomeList = getLocalIncome();
-      const newIncome = { 
-        ...data, 
-        id: Math.random().toString(36).substr(2, 9), 
+      const docRef = await addDoc(collection(db, 'income'), {
+        ...data,
         userId: currentUser.id,
-        amount: parseFloat(data.amount)
-      };
-      incomeList.push(newIncome);
-      localStorage.setItem(INCOME_KEY, JSON.stringify(incomeList));
-      return newIncome;
+        amount: parseFloat(data.amount),
+        createdAt: serverTimestamp()
+      });
+      return { id: docRef.id, ...data, userId: currentUser.id, amount: parseFloat(data.amount) };
     }
 
     if (endpoint === '/categories') {
-      const categories = getLocalCategories();
-      const newCategory = {
+      const docRef = await addDoc(collection(db, 'categories'), {
         ...data,
         userId: currentUser.id,
-        id: Math.random().toString(36).substr(2, 9),
-      };
-      categories.push(newCategory);
-      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
-      return newCategory;
+        createdAt: serverTimestamp()
+      });
+      return { id: docRef.id, ...data, userId: currentUser.id };
     }
 
     if (endpoint === '/income-categories') {
-      const categories = getLocalIncomeCategories();
-      const newCategory = {
+      const docRef = await addDoc(collection(db, 'income_categories'), {
         ...data,
         userId: currentUser.id,
-        id: Math.random().toString(36).substr(2, 9),
-      };
-      categories.push(newCategory);
-      localStorage.setItem(INCOME_CATEGORIES_KEY, JSON.stringify(categories));
-      return newCategory;
+        createdAt: serverTimestamp()
+      });
+      return { id: docRef.id, ...data, userId: currentUser.id };
     }
 
     if (endpoint === '/budgets') {
-      const budgets = getLocalBudgets();
-      const newBudget = {
+      const docRef = await addDoc(collection(db, 'budgets'), {
         ...data,
         userId: currentUser.id,
-        id: Math.random().toString(36).substr(2, 9),
         limit: parseFloat(data.limit) || 0,
-        categoryNames: data.categoryNames || []
-      };
-      budgets.push(newBudget);
-      localStorage.setItem(BUDGETS_KEY, JSON.stringify(budgets));
-      return newBudget;
+        categoryNames: data.categoryNames || [],
+        createdAt: serverTimestamp()
+      });
+      return { id: docRef.id, ...data, userId: currentUser.id, limit: parseFloat(data.limit) || 0, categoryNames: data.categoryNames || [] };
     }
 
     throw new Error('Endpoint not found');
@@ -218,72 +230,41 @@ export const apiService = {
 
     if (endpoint.startsWith('/expenses/')) {
       const id = endpoint.split('/expenses/')[1];
-      const expenses = getLocalExpenses();
-      const index = expenses.findIndex((e: any) => String(e.id) === String(id) && String(e.userId) === String(currentUser.id));
-      
-      if (index === -1) throw new Error('Expense not found');
-      
-      const updatedExpense = { ...expenses[index], ...data, amount: parseFloat(data.amount) };
-      expenses[index] = updatedExpense;
-      localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
-      return updatedExpense;
+      const docRef = doc(db, 'expenses', id);
+      await updateDoc(docRef, { ...data, amount: parseFloat(data.amount) });
+      return { id, ...data, amount: parseFloat(data.amount) };
     }
 
     if (endpoint.startsWith('/income/')) {
       const id = endpoint.split('/income/')[1];
-      const incomeList = getLocalIncome();
-      const index = incomeList.findIndex((e: any) => String(e.id) === String(id) && String(e.userId) === String(currentUser.id));
-      
-      if (index === -1) throw new Error('Income record not found');
-      
-      const updatedIncome = { ...incomeList[index], ...data, amount: parseFloat(data.amount) };
-      incomeList[index] = updatedIncome;
-      localStorage.setItem(INCOME_KEY, JSON.stringify(incomeList));
-      return updatedIncome;
+      const docRef = doc(db, 'income', id);
+      await updateDoc(docRef, { ...data, amount: parseFloat(data.amount) });
+      return { id, ...data, amount: parseFloat(data.amount) };
     }
 
     if (endpoint.startsWith('/categories/')) {
       const id = endpoint.split('/categories/')[1];
-      const categories = getLocalCategories();
-      const index = categories.findIndex((c: any) => String(c.id) === String(id) && String(c.userId) === String(currentUser.id));
-      
-      if (index === -1) throw new Error('Category not found');
-      
-      const updatedCategory = { ...categories[index], ...data, budget: parseFloat(data.budget) || 0 };
-      categories[index] = updatedCategory;
-      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
-      return updatedCategory;
+      const docRef = doc(db, 'categories', id);
+      await updateDoc(docRef, { ...data, budget: parseFloat(data.budget) || 0 });
+      return { id, ...data, budget: parseFloat(data.budget) || 0 };
     }
 
     if (endpoint.startsWith('/income-categories/')) {
       const id = endpoint.split('/income-categories/')[1];
-      const categories = getLocalIncomeCategories();
-      const index = categories.findIndex((c: any) => String(c.id) === String(id) && String(c.userId) === String(currentUser.id));
-      
-      if (index === -1) throw new Error('Income category not found');
-      
-      const updatedCategory = { ...categories[index], ...data };
-      categories[index] = updatedCategory;
-      localStorage.setItem(INCOME_CATEGORIES_KEY, JSON.stringify(categories));
-      return updatedCategory;
+      const docRef = doc(db, 'income_categories', id);
+      await updateDoc(docRef, data);
+      return { id, ...data };
     }
 
     if (endpoint.startsWith('/budgets/')) {
       const id = endpoint.split('/budgets/')[1];
-      const budgets = getLocalBudgets();
-      const index = budgets.findIndex((b: any) => String(b.id) === String(id) && String(b.userId) === String(currentUser.id));
-      
-      if (index === -1) throw new Error('Budget not found');
-      
-      const updatedBudget = { 
-        ...budgets[index], 
+      const docRef = doc(db, 'budgets', id);
+      await updateDoc(docRef, { 
         ...data, 
         limit: parseFloat(data.limit) || 0,
         categoryNames: data.categoryNames || []
-      };
-      budgets[index] = updatedBudget;
-      localStorage.setItem(BUDGETS_KEY, JSON.stringify(budgets));
-      return updatedBudget;
+      });
+      return { id, ...data, limit: parseFloat(data.limit) || 0, categoryNames: data.categoryNames || [] };
     }
     
     throw new Error('Endpoint not found');
@@ -301,32 +282,38 @@ export const apiService = {
     if (!currentUser) throw new Error('Unauthorized');
 
     if (endpoint === '/expenses') {
-      const expenses = getLocalExpenses();
-      return expenses.filter((e: any) => e.userId === currentUser.id).reverse();
+      const q = query(collection(db, 'expenses'), where('userId', '==', currentUser.id), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     }
 
     if (endpoint === '/income') {
-      const incomeList = getLocalIncome();
-      return incomeList.filter((e: any) => e.userId === currentUser.id).reverse();
+      const q = query(collection(db, 'income'), where('userId', '==', currentUser.id), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     }
 
     if (endpoint === '/categories') {
-      const categories = getLocalCategories();
-      const expenses = getLocalExpenses().filter((e: any) => e.userId === currentUser.id);
-      
-      let userCategories = categories.filter((c: any) => c.userId === currentUser.id);
+      const q = query(collection(db, 'categories'), where('userId', '==', currentUser.id));
+      const snapshot = await getDocs(q);
+      let userCategories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       if (userCategories.length === 0) {
-        const userDefaults = DEFAULT_CATEGORIES.map(cat => ({
-          ...cat,
-          userId: currentUser.id,
-          id: Math.random().toString(36).substr(2, 9),
-        }));
-        const allCategories = getLocalCategories();
-        localStorage.setItem(CATEGORIES_KEY, JSON.stringify([...allCategories, ...userDefaults]));
-        userCategories = userDefaults;
+        // Seed defaults to Firestore
+        const promises = DEFAULT_CATEGORIES.map(cat => 
+          addDoc(collection(db, 'categories'), { ...cat, userId: currentUser.id, createdAt: serverTimestamp() })
+        );
+        await Promise.all(promises);
+        
+        // Re-fetch
+        const newSnapshot = await getDocs(q);
+        userCategories = newSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       }
       
+      const expensesQuery = query(collection(db, 'expenses'), where('userId', '==', currentUser.id));
+      const expensesSnapshot = await getDocs(expensesQuery);
+      const expenses = expensesSnapshot.docs.map(doc => doc.data());
+
       return userCategories.map((cat: any) => {
         const catExpenses = expenses.filter((e: any) => e.category === cat.name);
         const totalSpent = catExpenses.reduce((sum: number, e: any) => sum + e.amount, 0);
@@ -339,10 +326,22 @@ export const apiService = {
     }
 
     if (endpoint === '/income-categories') {
-      const categories = getLocalIncomeCategories();
-      const incomeList = getLocalIncome().filter((e: any) => e.userId === currentUser.id);
+      const q = query(collection(db, 'income_categories'), where('userId', '==', currentUser.id));
+      const snapshot = await getDocs(q);
+      let userCategories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      if (userCategories.length === 0) {
+        const promises = DEFAULT_INCOME_CATEGORIES.map(cat => 
+          addDoc(collection(db, 'income_categories'), { ...cat, userId: currentUser.id, createdAt: serverTimestamp() })
+        );
+        await Promise.all(promises);
+        const newSnapshot = await getDocs(q);
+        userCategories = newSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      }
       
-      let userCategories = categories.filter((c: any) => c.userId === currentUser.id);
+      const incomeQuery = query(collection(db, 'income'), where('userId', '==', currentUser.id));
+      const incomeSnapshot = await getDocs(incomeQuery);
+      const incomeList = incomeSnapshot.docs.map(doc => doc.data());
       
       return userCategories.map((cat: any) => {
         const catIncome = incomeList.filter((e: any) => e.category === cat.name);
@@ -356,9 +355,13 @@ export const apiService = {
     }
 
     if (endpoint === '/budgets') {
-      const budgets = getLocalBudgets();
-      const expenses = getLocalExpenses().filter((e: any) => e.userId === currentUser.id);
-      const userBudgets = budgets.filter((b: any) => b.userId === currentUser.id);
+      const q = query(collection(db, 'budgets'), where('userId', '==', currentUser.id));
+      const snapshot = await getDocs(q);
+      const userBudgets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      const expensesQuery = query(collection(db, 'expenses'), where('userId', '==', currentUser.id));
+      const expensesSnapshot = await getDocs(expensesQuery);
+      const expenses = expensesSnapshot.docs.map(doc => doc.data());
 
       return userBudgets.map((budget: any) => {
         const relevantExpenses = expenses.filter((e: any) => 
@@ -420,71 +423,31 @@ export const apiService = {
 
     if (endpoint.includes('/expenses/')) {
       const id = endpoint.split('/expenses/')[1].split('/')[0];
-      const expenses = getLocalExpenses();
-      
-      const filtered = expenses.filter((e: any) => {
-        const isTarget = String(e.id) === String(id);
-        const belongsToUser = String(e.userId) === String(currentUser.id);
-        return !(isTarget && belongsToUser);
-      });
-
-      localStorage.setItem(EXPENSES_KEY, JSON.stringify(filtered));
+      await deleteDoc(doc(db, 'expenses', id));
       return { success: true };
     }
 
     if (endpoint.includes('/income/')) {
       const id = endpoint.split('/income/')[1].split('/')[0];
-      const incomeList = getLocalIncome();
-      
-      const filtered = incomeList.filter((e: any) => {
-        const isTarget = String(e.id) === String(id);
-        const belongsToUser = String(e.userId) === String(currentUser.id);
-        return !(isTarget && belongsToUser);
-      });
-
-      localStorage.setItem(INCOME_KEY, JSON.stringify(filtered));
+      await deleteDoc(doc(db, 'income', id));
       return { success: true };
     }
 
     if (endpoint.includes('/categories/')) {
       const id = endpoint.split('/categories/')[1].split('/')[0];
-      const categories = getLocalCategories();
-      
-      const filtered = categories.filter((c: any) => {
-        const isTarget = String(c.id) === String(id);
-        const belongsToUser = String(c.userId) === String(currentUser.id);
-        return !(isTarget && belongsToUser);
-      });
-
-      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(filtered));
+      await deleteDoc(doc(db, 'categories', id));
       return { success: true };
     }
 
     if (endpoint.includes('/income-categories/')) {
       const id = endpoint.split('/income-categories/')[1].split('/')[0];
-      const categories = getLocalIncomeCategories();
-      
-      const filtered = categories.filter((c: any) => {
-        const isTarget = String(c.id) === String(id);
-        const belongsToUser = String(c.userId) === String(currentUser.id);
-        return !(isTarget && belongsToUser);
-      });
-
-      localStorage.setItem(INCOME_CATEGORIES_KEY, JSON.stringify(filtered));
+      await deleteDoc(doc(db, 'income_categories', id));
       return { success: true };
     }
 
     if (endpoint.includes('/budgets/')) {
       const id = endpoint.split('/budgets/')[1].split('/')[0];
-      const budgets = getLocalBudgets();
-      
-      const filtered = budgets.filter((b: any) => {
-        const isTarget = String(b.id) === String(id);
-        const belongsToUser = String(b.userId) === String(currentUser.id);
-        return !(isTarget && belongsToUser);
-      });
-
-      localStorage.setItem(BUDGETS_KEY, JSON.stringify(filtered));
+      await deleteDoc(doc(db, 'budgets', id));
       return { success: true };
     }
 

@@ -60,12 +60,15 @@ const App: React.FC = () => {
         setUser(userData);
         setIsAuthenticated(isVerified);
         
-        if (!isVerified) {
+        if (isVerified) {
+          localStorage.setItem('user', JSON.stringify(userData));
+        } else {
           setAuthMode(AuthView.VERIFY_OTP);
         }
       } else {
         setUser(null);
         setIsAuthenticated(false);
+        localStorage.removeItem('user');
         setAuthMode(AuthView.LOGIN);
       }
       setIsLoading(false);
@@ -82,7 +85,9 @@ const App: React.FC = () => {
       localStorage.setItem('ea_verified_users', JSON.stringify(verifiedUsers));
     }
 
-    setUser({ ...userData, isVerified: true });
+    const updatedUser = { ...userData, isVerified: true };
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
     setIsAuthenticated(true);
   };
 
